@@ -9,18 +9,26 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using kafka4net;
+using log4net;
+using log4net.Config;
 
 namespace SimpleConsoleConsumer
 {
-    class Program
+    public class Program
     {
         private const string brokerIP = "192.168.59.103";
+        private static readonly ILog _log =  LogManager.GetLogger(typeof(Program));
+
         static void Main(string[] args)
         {
             Program program = new Program();
+            var appender = new log4net.Appender.DebugAppender();
+            BasicConfigurator.Configure(appender);
             Logger.SetupLog4Net();
+            _log.Debug("hans");
             //program.ConsumeMessages("topic2");
             program.CreateAndConsume(null);
+            Console.Read();
         }
 
         private async void ConsumeMessages(string topic)
@@ -59,7 +67,7 @@ namespace SimpleConsoleConsumer
             const int producedCount = 10;
             var wodickh = Encoding.UTF8.GetBytes("wodickh");
             // TODO: set wait to 5sec
-
+            
             //
             // Produce
             // In order to make sure that topic was created by producer, send and wait for producer
