@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -17,10 +18,12 @@ namespace SimpleConsoleConsumer
         static void Main(string[] args)
         {
             Program program = new Program();
-            program.ConsumeMessages("topic2");
+            Logger.SetupLog4Net();
+            //program.ConsumeMessages("topic2");
+            program.CreateAndConsume(null);
         }
 
-        private void ConsumeMessages(string topic)
+        private async void ConsumeMessages(string topic)
         {
             var receivedEvents = new List<int>(100);
             var handler = new BufferBlock<ReceivedMessage>();
@@ -31,11 +34,12 @@ namespace SimpleConsoleConsumer
             var msgs = handler.AsObservable().Publish().RefCount();
          //   var t1 = msgs.TakeUntil(DateTimeOffset.Now.AddSeconds(5)).LastOrDefaultAsync().ToTask();
        //     var t2 = msgs.TakeUntil(DateTimeOffset.Now.AddSeconds(6)).LastOrDefaultAsync().ToTask();
-            //await consumer.IsConnected;
+            await consumer.State.Connected;
+         //   var metas = await consumer.Cluster.GetOrFetchMetaForTopicAsync(topic);
             var count2 = await handler.AsObservable()
                 .Do(msg =>
                 {
-                    var value = BitConverter.ToInt32((msg.Value, 0);
+                    var value = BitConverter.ToInt32(msg.Value, 0);
                     Console.WriteLine("Consumer received value {0} from partition {1} at offset {2}", value,
                         msg.Partition, msg.Offset);
                     receivedEvents.Add(value);
@@ -44,8 +48,58 @@ namespace SimpleConsoleConsumer
 
            // await Task.WhenAll(new[] { t1, t2 });
             consumer.Dispose();
+            await consumer.State.Closed;
+            Console.ReadLine();
         }
 
+        private async void CreateAndConsume(string topic)
+        {
+            Random _rnd = new Random();
+            if (topic == null)  topic = "autocreate.test." + _rnd.Next();
+            const int producedCount = 10;
+            var wodickh = Encoding.UTF8.GetBytes("wodickh");
+            // TODO: set wait to 5sec
+
+            //
+            // Produce
+            // In order to make sure that topic was created by producer, send and wait for producer
+            // completion before performing validation read.
+            //
+            var producer = new Producer(brokerIP, new ProducerConfiguration(topic));
+            
+            await producer.ConnectAsync();
+           
+            Console.WriteLine("Producing...");
+            await Observable.Interval(TimeSpan.FromSeconds(1)).
+                Take(producedCount).
+                Do(_ => producer.Send(new Message { Value = wodickh })).
+                ToTask();
+            await producer.CloseAsync(TimeSpan.FromSeconds(10));
+
+            //
+            // Validate by reading published messages
+            //
+            var receivedTxt = new List<string>();
+            var complete = new BehaviorSubject<int>(0);
+            Action<ReceivedMessage> handler = msg =>
+            {
+                var str = Encoding.UTF8.GetString(msg.Value);
+                lock (receivedTxt)
+                {
+                    receivedTxt.Add(str);
+                    complete.OnNext(receivedTxt.Count);
+                }
+            };
+            var consumer = Consumer.Create(brokerIP, topic).
+                WithStartPositionAtBeginning().
+                WithAction(handler).
+                Build();
+
+            Console.WriteLine("Waiting for consumer");
+            await complete.TakeWhile(i => i < producedCount).TakeUntil(DateTimeOffset.Now.AddSeconds(5)).LastOrDefaultAsync().ToTask();
+            
+            consumer.Dispose(); 
+        }
    /*     private async void ProduceAndConsume(string topic)
         {
             const int count = 100;
